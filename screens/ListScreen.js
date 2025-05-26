@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   FlatList,
@@ -7,187 +7,239 @@ import {
   StyleSheet,
   Dimensions,
   Image,
+  Alert,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import Svg, { Rect, Defs, LinearGradient, Stop } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const userData = {
-  id: '1',
-  user: 'Reginaldo Lopes de Oliveira',
-  img_url: require('../assets/images/user_photo.jpg'),
-  email: 'reginaldo.l@gmail.com',
-  doc: '292.314.871-52',
-  phone: '(12) 98765-0987',
-};
-const mockData = [
-  {
-    id: '1',
-    number: '#00002684',
-    date: '19/10/2024 - 8h45',
-    doctor: 'Dr. Carlos José Marin',
-    place: 'MedSaúde Clínica Médica ',
-    location: 'São Paulo',
-    specialties: 'Clínico Geral',
-    doc: 'CRM/SP-785469',
-    img_url: require('../assets/images/doc2.jpg'),
-    itens: 1,
-    medicine_list: {
-      medicine: 'Losartana Potássica 50mg',
-      detail: '02 vezes ao dia de 12 em 12 horas.',
-    },
-    region: {
-      latitude: -23.55052,
-      longitude: -46.633308,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    },
-    shop_coordinates: [
-      {
-        id: 1,
-        latitude: -23.55052,
-        longitude: -46.633308,
-        title: 'Ponto 1',
-        bestplace: false,
-      },
-      {
-        id: 2,
-        latitude: -23.55052,
-        longitude: -46.633308,
-        title: 'Ponto 1',
-        bestplace: true,
-      },
-      {
-        id: 3,
-        latitude: -23.55052,
-        longitude: -46.633308,
-        title: 'Ponto 1',
-        bestplace: false,
-      },
-    ],
-  },
-  {
-    id: '2',
-    number: '#00003409',
-    date: '24/11/2024 - 10h30',
-    doctor: 'Dra. Marta Lopes da Silva',
-    place: 'Clínica Santa Helena',
-    location: 'São José dos Campos',
-    specialties: 'Cardiologista',
-    doc: 'CRM/SP-458523',
-    img_url: require('../assets/images/doc1.jpg'),
-    itens: 2,
-    exam_list: {
-      exam: 'Hemograma Completo',
-      detail: 'Em jejum de 12 horas.',
-    },
-  },
-  {
-    id: '3',
-    number: '#00003550',
-    date: '26/11/2024 - 14h30',
-    doctor: 'Dr. Mário Sérgio Calvancante',
-    place: 'Hospital Vivale',
-    location: 'São José dos Campos',
-    specialties: 'Urologista',
-    doc: 'CRM/SP-852456',
-    img_url: require('../assets/images/doc3.jpg'),
-    itens: 3,
-    medicine_list: {
-      medicine: 'Losartana Potássica 50mg',
-      detail: '02 vezes ao dia de 12 em 12 horas.',
-    },
-    exam_list: {
-      exam: 'Hemograma Completo',
-      detail: 'Em jejum de 12 horas.',
-    },
-  },
-];
+const API_URL = 'http://192.168.26.103:5000/api';
 
-const { height, width } = Dimensions.get('window'); // Obter altura e largura da tela
+const { height, width } = Dimensions.get('window');
 
 export default function ListScreen({ route, navigation }) {
-  const renderItem = ({ item }) => (
-    <View style={styles.item}>
-      <View style={styles.row}>
-        <View style={styles.textLeft}>
-          <Text style={styles.title}>{item.doctor}</Text>
-          <Text style={styles.subtitle}>{item.specialties}</Text>
+  const [userData, setUserData] = useState(null);
+  const [receitas, setReceitas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadUserData();
+    loadReceitas();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const storedUserData = await AsyncStorage.getItem('userData');
+      if (storedUserData) {
+        const user = JSON.parse(storedUserData);
+        setUserData(user);
+        
+        // Se for paciente, buscar dados específicos do perfil
+        if (user.tipo === 'paciente') {
+          await loadProfileData();
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados do usuário:', error);
+    }
+  };
+
+  const loadProfileData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const response = await fetch(`${API_URL}/profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const profileData = await response.json();
+        setUserData(prevData => ({
+          ...prevData,
+          ...profileData
+        }));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar perfil:', error);
+    }
+  };
+
+  const loadReceitas = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      
+      const response = await fetch(`${API_URL}/receitas`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const receitasData = await response.json();
+        setReceitas(receitasData);
+      } else {
+        const errorData = await response.json();
+        Alert.alert('Erro', errorData.message || 'Não foi possível carregar as receitas');
+      }
+      
+    } catch (error) {
+      console.error('Erro ao carregar receitas:', error);
+      Alert.alert('Erro', 'Não foi possível conectar ao servidor');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadReceitas();
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('pt-BR') + ' - ' + 
+           date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getItensPrescritos = (receita) => {
+    const tipos = [];
+    if (receita.medicamentos && receita.medicamentos.length > 0) {
+      tipos.push('MEDICAMENTOS');
+    }
+    if (receita.exames && receita.exames.length > 0) {
+      tipos.push('EXAMES');
+    }
+    return tipos;
+  };
+
+  const getImageForDoctor = (nome_medico) => {
+    // Mapear médicos para imagens (você pode expandir isso baseado nos seus dados)
+    const doctorImages = {
+      'Dr. Carlos José Marin': require('../assets/images/doc2.jpg'),
+      'Dra. Marta Lopes da Silva': require('../assets/images/doc1.jpg'),
+      'Dr. Mário Sérgio Calvancante': require('../assets/images/doc3.jpg'),
+    };
+    
+    return doctorImages[nome_medico] || require('../assets/images/doc1.jpg'); // imagem padrão
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Deseja realmente sair do aplicativo?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sair',
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem('userToken');
+              await AsyncStorage.removeItem('userData');
+              navigation.replace('Login');
+            } catch (error) {
+              console.error('Erro ao fazer logout:', error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderItem = ({ item }) => {
+    const itensPrescritos = getItensPrescritos(item);
+    
+    return (
+      <View style={styles.item}>
+        <View style={styles.row}>
+          <View style={styles.textLeft}>
+            <Text style={styles.title}>{item.nome_medico}</Text>
+            <Text style={styles.subtitle}>{item.especialidade}</Text>
+            <Text style={styles.subtitle}>{item.crm}</Text>
+          </View>
+          <Image source={getImageForDoctor(item.nome_medico)} style={styles.imageCard} />
         </View>
-        <Image source={item.img_url} style={styles.imageCard} />
-      </View>
 
-      <View style={styles.separator} />
-      <View style={styles.section}>
-        <Text style={styles.subtitle}>Paciente</Text>
-        <Text style={styles.textLeftAligned}>{userData.user}</Text>
-      </View>
+        <View style={styles.separator} />
+        <View style={styles.section}>
+          <Text style={styles.subtitle}>Paciente</Text>
+          <Text style={styles.textLeftAligned}>
+            {userData ? userData.nome : 'Carregando...'}
+          </Text>
+        </View>
 
-      <View style={styles.separator} />
-      <View style={styles.section}>
-        <Text style={styles.subtitle}>Data</Text>
-        <Text style={styles.textLeftAligned}>{item.date}</Text>
-      </View>
+        <View style={styles.separator} />
+        <View style={styles.section}>
+          <Text style={styles.subtitle}>Data da Receita</Text>
+          <Text style={styles.textLeftAligned}>
+            {formatDate(item.data_emissao)}
+          </Text>
+        </View>
 
-      <View style={styles.separator} />
+        <View style={styles.separator} />
+        <View style={styles.section}>
+          <Text style={styles.subtitle}>Número da Receita</Text>
+          <Text style={styles.textLeftAligned}>
+            {item.numero || `#${item.id_receita.toString().padStart(8, '0')}`}
+          </Text>
+        </View>
 
-      {/* Condicional para exibir "Itens Prescritos" baseado no valor de 'itens' */}
-      {item.itens === 1 && (
+        <View style={styles.separator} />
+        <View style={styles.section}>
+          <Text style={styles.subtitle}>Status</Text>
+          <Text style={[
+            styles.textLeftAligned,
+            { color: item.status === 'ativa' ? '#4CAF50' : '#FF9800' }
+          ]}>
+            {item.status.toUpperCase()}
+          </Text>
+        </View>
+
+        <View style={styles.separator} />
         <View style={styles.section}>
           <Text style={styles.subtitle}>Itens Prescritos</Text>
-          <View style={styles.textContainer}>
-            <Image
-              source={require('../assets/images/check.png')}
-              style={styles.icon}
-            />
-            <Text style={styles.checkText}>MEDICAMENTOS</Text>
-          </View>
+          {itensPrescritos.map((tipo, index) => (
+            <View key={index} style={styles.textContainer}>
+              <Image
+                source={require('../assets/images/check.png')}
+                style={styles.icon}
+              />
+              <Text style={styles.checkText}>{tipo}</Text>
+            </View>
+          ))}
         </View>
-      )}
 
-      {item.itens === 2 && (
-        <View style={styles.section}>
-          <Text style={styles.subtitle}>Itens Prescritos</Text>
-          <View style={styles.textContainer}>
-            <Image
-              source={require('../assets/images/check.png')}
-              style={styles.icon}
-            />
-            <Text style={styles.checkText}>EXAMES</Text>
-          </View>
-        </View>
-      )}
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() =>
+            navigation.navigate('Details', {
+              data: item,
+              userData: userData,
+            })
+          }>
+          <Text style={styles.buttonText}>VISUALIZAR</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
-      {item.itens === 3 && (
-        <View style={styles.section}>
-          <Text style={styles.subtitle}>Itens Prescritos</Text>
-          <View style={styles.textContainer}>
-            <Image
-              source={require('../assets/images/check.png')}
-              style={styles.icon}
-            />
-            <Text style={styles.checkText}>MEDICAMENTOS</Text>
-          </View>
-          <View style={styles.textContainer}>
-            <Image
-              source={require('../assets/images/check.png')}
-              style={styles.icon}
-            />
-            <Text style={styles.checkText}>EXAMES</Text>
-          </View>
-        </View>
-      )}
-
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() =>
-          navigation.navigate('Details', {
-            data: item,
-            userData: userData,
-          })
-        }>
-        <Text style={styles.buttonText}>VISUALIZAR</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#729466" />
+        <Text style={styles.loadingText}>Carregando receitas...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -204,15 +256,22 @@ export default function ListScreen({ route, navigation }) {
         </Svg>
 
         <View style={styles.profileContainer}>
-          <Image source={userData.img_url} style={styles.picture} />
-          <Text style={styles.userText}>{userData.user}</Text>
+          <Image 
+            source={require('../assets/images/user_photo.jpg')} 
+            style={styles.picture} 
+          />
+          <Text style={styles.userText}>
+            {userData ? userData.nome : 'Carregando...'}
+          </Text>
 
           <View style={styles.textContainer}>
             <Image
               source={require('../assets/images/card.png')}
               style={styles.icon}
             />
-            <Text style={styles.docText}>{userData.doc}</Text>
+            <Text style={styles.docText}>
+              {userData && userData.cpf ? userData.cpf : userData && userData.email ? userData.email : 'Carregando...'}
+            </Text>
           </View>
 
           <View style={styles.textContainer}>
@@ -220,8 +279,14 @@ export default function ListScreen({ route, navigation }) {
               source={require('../assets/images/phone.png')}
               style={styles.icon}
             />
-            <Text style={styles.phoneText}>{userData.phone}</Text>
+            <Text style={styles.phoneText}>
+              {userData && userData.telefone ? userData.telefone : 'Não informado'}
+            </Text>
           </View>
+
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Sair</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -236,10 +301,25 @@ export default function ListScreen({ route, navigation }) {
       </View>
 
       <FlatList
-        data={mockData}
+        data={receitas}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id_receita.toString()}
         contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#729466']}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>Nenhuma receita encontrada</Text>
+            <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+              <Text style={styles.refreshButtonText}>Atualizar</Text>
+            </TouchableOpacity>
+          </View>
+        }
       />
     </View>
   );
@@ -250,9 +330,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#EDE8E8',
   },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
   topView: {
     width: width,
-    height: height * 0.4, // Ajuste a altura proporcionalmente
+    height: height * 0.4,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'absolute',
@@ -276,19 +365,32 @@ const styles = StyleSheet.create({
     color: '#0F2707',
     fontSize: 24,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   docText: {
     color: '#0F2707',
-    fontSize: 20,
+    fontSize: 16,
   },
   phoneText: {
     color: '#0F2707',
-    fontSize: 20,
+    fontSize: 16,
   },
   checkText: {
     color: 'rgba(0, 0, 0, 0.8)',
     fontWeight: 'bold',
-    fontSize: 20,
+    fontSize: 16,
+  },
+  logoutButton: {
+    marginTop: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+    borderRadius: 15,
+  },
+  logoutText: {
+    color: '#0F2707',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   listContainer: {
     paddingTop: height * 0.4 + 45,
@@ -297,7 +399,6 @@ const styles = StyleSheet.create({
   },
   item: {
     backgroundColor: '#fff',
-    height: 450,
     padding: 20,
     marginVertical: 8,
     borderRadius: 10,
@@ -313,7 +414,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: 'gray',
     marginBottom: 3,
   },
@@ -369,7 +470,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   textLeftAligned: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#333',
     marginBottom: 5,
   },
@@ -390,5 +491,27 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     aspectRatio: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 50,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 20,
+  },
+  refreshButton: {
+    backgroundColor: '#729466',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 5,
+  },
+  refreshButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
